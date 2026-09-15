@@ -3002,7 +3002,12 @@
             "voice_section": "Voice settings"
         },
         "warn_quit": "Warn before quitting",
-        "warning": "<w>WARNING:</w> <description/>"
+        "warning": "<w>WARNING:</w> <description/>",
+        "widgets": {
+            "coming_soon": "Coming soon",
+            "dialog_title": "<strong>Settings:</strong> Widgets",
+            "title": "Widgets"
+        }
     },
     "share": {
         "link_copied": "Link copied",
