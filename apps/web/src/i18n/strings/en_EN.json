@@ -1810,6 +1810,10 @@
         "unknown_for": "Unknown for %(duration)s",
         "unreachable": "User's server unreachable"
     },
+    "protocol_handler": {
+        "toast_description": "Your browser may ask for permission. Once granted, matrix: links to people, rooms and messages will open here in %(brand)s.",
+        "toast_title": "Open matrix: links in %(brand)s"
+    },
     "quick_settings": {
         "all_settings": "All settings",
         "sidebar_settings": "More options",

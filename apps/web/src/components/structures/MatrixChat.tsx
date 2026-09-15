@@ -36,6 +36,7 @@ import { type IMatrixClientCreds } from "../../utils/createMatrixClient";
 import { MatrixClientPeg } from "../../MatrixClientPeg";
 import PlatformPeg from "../../PlatformPeg";
 import SdkConfig, { type ConfigOptions } from "../../SdkConfig";
+import { parsePermalink } from "../../utils/permalinks/Permalinks";
 import dis from "../../dispatcher/dispatcher";
 import Modal from "../../Modal";
 import { showRoomInviteDialog, showStartChatInviteDialog } from "../../RoomInvite";
@@ -484,6 +485,8 @@ export default class MatrixChat extends React.PureComponent<IProps, IState> {
 
         void initSentry(SdkConfig.get("sentry"));
         window.addEventListener("resize", this.onWindowResized);
+
+        this.registerAsMatrixUriHandler();
 
         // Once we start loading the MatrixClient, we can't stop, even if MatrixChat gets unmounted (as it does
         // in React's Strict Mode). So, start loading the session now, but only if this MatrixChat was not previously
@@ -1816,6 +1819,37 @@ export default class MatrixChat extends React.PureComponent<IProps, IState> {
         }
     }
 
+    /**
+     * Register this Element instance as the browser's handler for matrix: URIs
+     * (MSC2312), so clicking a matrix: link elsewhere opens it here. Runs once per
+     * browser profile and shows a toast explaining the permission prompt the browser
+     * raises — the piece that was missing from matrix-org/matrix-react-sdk#7700.
+     */
+    private registerAsMatrixUriHandler(): void {
+        if (typeof navigator.registerProtocolHandler !== "function") return;
+        const storageKey = "mx_matrix_uri_handler_registered";
+        if (localStorage.getItem(storageKey)) return;
+        try {
+            navigator.registerProtocolHandler("matrix", "/#/%s");
+            localStorage.setItem(storageKey, "1");
+        } catch (e) {
+            logger.warn("Failed to register as matrix: URI handler", e);
+            return;
+        }
+        const toastKey = "matrix_uri_handler";
+        ToastStore.sharedInstance().addOrReplaceToast({
+            key: toastKey,
+            title: _t("protocol_handler|toast_title", { brand: SdkConfig.get("brand") }),
+            props: {
+                description: _t("protocol_handler|toast_description", { brand: SdkConfig.get("brand") }),
+                primaryLabel: _t("action|ok"),
+                onPrimaryClick: () => ToastStore.sharedInstance().dismissToast(toastKey),
+            },
+            component: GenericToast,
+            priority: 90,
+        });
+    }
+
     public showScreen(screen: string, params?: Record<string, any>): void {
         logger.debug(`showScreen ${screen}`);
 
@@ -1911,6 +1945,21 @@ export default class MatrixChat extends React.PureComponent<IProps, IState> {
 
             const type = screen === "start_sso" ? "sso" : "cas";
             PlatformPeg.get()?.startSingleSignOn(cli, type, this.getFragmentAfterLogin());
+        } else if (screen.startsWith("matrix:")) {
+            // A matrix: URI (MSC2312) was handed to us — e.g. by the browser via the
+            // protocol handler we register in registerAsMatrixUriHandler(). Translate it
+            // into our internal room/user screen and re-dispatch.
+            const parts = parsePermalink(screen);
+            if (parts?.userId) {
+                this.showScreen(`user/${parts.userId}`, params);
+            } else if (parts?.roomIdOrAlias) {
+                const roomParams: Record<string, any> = { ...params };
+                if (parts.viaServers?.length) roomParams.via = parts.viaServers;
+                const eventSuffix = parts.eventId ? `/${parts.eventId}` : "";
+                this.showScreen(`room/${parts.roomIdOrAlias}${eventSuffix}`, roomParams);
+            } else {
+                logger.warn("Ignoring unparseable matrix: URI", screen);
+            }
         } else if (screen.indexOf("room/") === 0) {
             // Rooms can have the following formats:
             // #room_alias:domain or !opaque_id:domain
