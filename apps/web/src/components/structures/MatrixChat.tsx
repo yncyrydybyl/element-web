@@ -487,6 +487,9 @@ export default class MatrixChat extends React.PureComponent<IProps, IState> {
         window.addEventListener("resize", this.onWindowResized);
 
         this.registerAsMatrixUriHandler();
+        if ("serviceWorker" in navigator) {
+            navigator.serviceWorker.addEventListener("message", this.onServiceWorkerMessage);
+        }
 
         // Once we start loading the MatrixClient, we can't stop, even if MatrixChat gets unmounted (as it does
         // in React's Strict Mode). So, start loading the session now, but only if this MatrixChat was not previously
@@ -527,6 +530,9 @@ export default class MatrixChat extends React.PureComponent<IProps, IState> {
         UIStore.destroy();
         this.stores.resizeNotifier.removeListener("middlePanelResized", this.dispatchTimelineResize);
         window.removeEventListener("resize", this.onWindowResized);
+        if ("serviceWorker" in navigator) {
+            navigator.serviceWorker.removeEventListener("message", this.onServiceWorkerMessage);
+        }
 
         DecryptionFailureTracker.instance.stop();
     }
@@ -1820,6 +1826,17 @@ export default class MatrixChat extends React.PureComponent<IProps, IState> {
     }
 
     /**
+     * A matrix: URI was claimed on our behalf by the service worker (which focuses
+     * this already-open tab instead of letting a new instance spawn) and forwarded
+     * here. Route to it via our normal showScreen handling.
+     */
+    private onServiceWorkerMessage = (event: MessageEvent): void => {
+        if (event.data?.type === "matrix_uri" && typeof event.data.uri === "string") {
+            this.showScreen(event.data.uri);
+        }
+    };
+
+    /**
      * Register this Element instance as the browser's handler for matrix: URIs
      * (MSC2312), so clicking a matrix: link elsewhere opens it here. Runs once per
      * browser profile and shows a toast explaining the permission prompt the browser
@@ -1830,7 +1847,10 @@ export default class MatrixChat extends React.PureComponent<IProps, IState> {
         const storageKey = "mx_matrix_uri_handler_registered";
         if (localStorage.getItem(storageKey)) return;
         try {
-            navigator.registerProtocolHandler("matrix", "/#/%s");
+            // Register to a service-worker-intercepted route (not "/#/%s") so an
+            // already-open Element tab can claim & focus the URI. See the service
+            // worker's handleMatrixUriNavigation() and onServiceWorkerMessage() below.
+            navigator.registerProtocolHandler("matrix", "/?matrix_uri=%s");
             localStorage.setItem(storageKey, "1");
         } catch (e) {
             logger.warn("Failed to register as matrix: URI handler", e);

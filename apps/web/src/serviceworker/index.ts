@@ -32,6 +32,18 @@ global.addEventListener("activate", (event) => {
 // have been spent trying to convince the type system that there's no actual conflict, but it has yet to work. Instead
 // of trying to make it do the thing, we force-cast to something close enough where we can (and ignore errors otherwise).
 global.addEventListener("fetch", (event: FetchEvent) => {
+    // Single-tab matrix: URI handling. The protocol handler registered in MatrixChat
+    // navigates here with "?matrix_uri=…". If an Element tab is already open, hand the
+    // URI to it and focus it (only a service worker can foreground an existing client),
+    // instead of spawning a fresh instance.
+    if (event.request.mode === "navigate") {
+        const navUrl = new URL(event.request.url);
+        if (navUrl.searchParams.has("matrix_uri")) {
+            event.respondWith(handleMatrixUriNavigation(navUrl));
+            return;
+        }
+    }
+
     // This is the authenticated media (MSC3916) check, proxying what was unauthenticated to the authenticated variants.
 
     if (event.request.method !== "GET") {
@@ -95,6 +107,29 @@ global.addEventListener("fetch", (event: FetchEvent) => {
         })(),
     );
 });
+
+async function handleMatrixUriNavigation(navUrl: URL): Promise<Response> {
+    const uri = navUrl.searchParams.get("matrix_uri")!;
+    try {
+        // @ts-expect-error - service worker types are not available. See 'fetch' event handler.
+        const windowClients = await global.clients.matchAll({ type: "window", includeUncontrolled: true });
+        // Prefer an existing app tab that isn't itself a protocol-handler landing page.
+        const existing = windowClients.find((c: { url: string }) => !new URL(c.url).searchParams.has("matrix_uri"));
+        if (existing) {
+            await existing.focus(); // only a service worker may foreground an existing client
+            existing.postMessage({ type: "matrix_uri", uri });
+            // Best-effort: close this freshly-opened tab (may be blocked by the browser).
+            return new Response(
+                "<!doctype html><meta charset=utf-8><title>Element</title><script>window.close()</script>",
+                { headers: { "content-type": "text/html" } },
+            );
+        }
+    } catch (err) {
+        console.error("SW: matrix: URI handoff failed; opening normally.", err);
+    }
+    // No existing tab (or handoff failed): let the app open and route the URI itself.
+    return Response.redirect(`${navUrl.origin}/#/${encodeURIComponent(uri)}`, 302);
+}
 
 async function tryUpdateServerSupportMap(clientApiUrl: string, accessToken?: string): Promise<void> {
     // only update if we don't know about it, or if the data is stale
