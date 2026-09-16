@@ -4,6 +4,15 @@
     "display": "standalone",
     "theme_color": "#76CFA6",
     "start_url": "index.html",
+    "protocol_handlers": [
+        {
+            "protocol": "matrix",
+            "url": "/?matrix_uri=%s"
+        }
+    ],
+    "launch_handler": {
+        "client_mode": "focus-existing"
+    },
     "icons": [
         {
             "src": "/vector-icons/24.png",

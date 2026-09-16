@@ -490,6 +490,16 @@ export default class MatrixChat extends React.PureComponent<IProps, IState> {
         if ("serviceWorker" in navigator) {
             navigator.serviceWorker.addEventListener("message", this.onServiceWorkerMessage);
         }
+        // Installed-PWA protocol launches: with launch_handler "focus-existing" the browser
+        // brings this already-open window to the foreground and hands us the matrix: URI.
+        const launchQueue = (
+            window as unknown as {
+                launchQueue?: { setConsumer(consumer: (params: { targetURL?: string }) => void): void };
+            }
+        ).launchQueue;
+        if (launchQueue) {
+            launchQueue.setConsumer((params) => this.handleMatrixUriLaunch(params?.targetURL));
+        }
 
         // Once we start loading the MatrixClient, we can't stop, even if MatrixChat gets unmounted (as it does
         // in React's Strict Mode). So, start loading the session now, but only if this MatrixChat was not previously
@@ -1835,6 +1845,20 @@ export default class MatrixChat extends React.PureComponent<IProps, IState> {
             this.showScreen(event.data.uri);
         }
     };
+
+    /**
+     * Handle a PWA protocol-handler launch (Launch Handler API). targetURL is our
+     * protocol_handlers url with the matrix: URI in the "matrix_uri" query param.
+     */
+    private handleMatrixUriLaunch(targetURL?: string): void {
+        if (!targetURL) return;
+        try {
+            const uri = new URL(targetURL).searchParams.get("matrix_uri");
+            if (uri) this.showScreen(uri);
+        } catch (e) {
+            logger.warn("Failed to handle matrix: URI launch", e);
+        }
+    }
 
     /**
      * Register this Element instance as the browser's handler for matrix: URIs
