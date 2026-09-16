@@ -116,11 +116,21 @@ async function handleMatrixUriNavigation(navUrl: URL): Promise<Response> {
         // Prefer an existing app tab that isn't itself a protocol-handler landing page.
         const existing = windowClients.find((c: { url: string }) => !new URL(c.url).searchParams.has("matrix_uri"));
         if (existing) {
-            await existing.focus(); // only a service worker may foreground an existing client
+            // Hand the URI to the existing tab first — this always works and is the
+            // important part. focus() is best-effort: a fetch handler has no transient
+            // activation, which WindowClient.focus() requires, so it may reject and must
+            // NOT abort the handoff (otherwise we'd fall through and load a 2nd Element).
             existing.postMessage({ type: "matrix_uri", uri });
-            // Best-effort: close this freshly-opened tab (may be blocked by the browser).
+            try {
+                await existing.focus();
+            } catch {
+                // Foregrounding may be disallowed; the existing tab still receives the URI.
+            }
+            // Never load a second Element instance when a tab already exists.
             return new Response(
-                "<!doctype html><meta charset=utf-8><title>Element</title><script>window.close()</script>",
+                "<!doctype html><meta charset=utf-8><title>Element</title>" +
+                    '<body style="font:16px system-ui;margin:2rem;color:#666">Opening in your Element tab…' +
+                    "<script>window.close()</script>",
                 { headers: { "content-type": "text/html" } },
             );
         }
