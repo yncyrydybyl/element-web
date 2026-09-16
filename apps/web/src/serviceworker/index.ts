@@ -111,10 +111,17 @@ global.addEventListener("fetch", (event: FetchEvent) => {
 async function handleMatrixUriNavigation(navUrl: URL): Promise<Response> {
     const uri = navUrl.searchParams.get("matrix_uri")!;
     try {
-        // @ts-expect-error - service worker types are not available. See 'fetch' event handler.
-        const windowClients = await global.clients.matchAll({ type: "window", includeUncontrolled: true });
-        // Prefer an existing app tab that isn't itself a protocol-handler landing page.
-        const existing = windowClients.find((c: { url: string }) => !new URL(c.url).searchParams.has("matrix_uri"));
+        // A newly-starting navigation races client enumeration: the already-open tab is
+        // sometimes missing from the first matchAll result, which would make us redirect
+        // and load a second Element instance. Retry briefly before giving up.
+        let existing: any; // eslint-disable-line @typescript-eslint/no-explicit-any
+        for (let attempt = 0; attempt < 6 && !existing; attempt++) {
+            // @ts-expect-error - service worker types are not available. See 'fetch' event handler.
+            const windowClients = await global.clients.matchAll({ type: "window", includeUncontrolled: true });
+            // Prefer an existing app tab that isn't itself a protocol-handler landing page.
+            existing = windowClients.find((c: { url: string }) => !new URL(c.url).searchParams.has("matrix_uri"));
+            if (!existing) await new Promise((resolve) => setTimeout(resolve, 60));
+        }
         if (existing) {
             // Hand the URI to the existing tab first — this always works and is the
             // important part. focus() is best-effort: a fetch handler has no transient
